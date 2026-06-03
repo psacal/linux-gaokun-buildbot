@@ -7,6 +7,7 @@ ConditionPathExists=/usr/local/bin/ssc-bridge
 
 [Service]
 Type=simple
+EnvironmentFile=-/etc/default/ssc-bridge
 ExecStart=/usr/local/bin/ssc-bridge --all
 Restart=always
 RestartSec=10
