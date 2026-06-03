@@ -67,8 +67,10 @@ git -C "$KERN_SRC" am "$GAOKUN_DIR"/patches/others/*.patch
 git -C "$KERN_SRC" am "$GAOKUN_DIR"/patches/media/*.patch
 git -C "$KERN_SRC" am "$GAOKUN_DIR"/patches/0099-arm64-gaokun3-import-local-dts-and-defconfig.patch
 
+SHORT_HASH=$(git -C "$GAOKUN_DIR" rev-parse --short=7 HEAD)
+
 ccache -z || true
-build_variant "$KERN_SRC" "$KERN_OUT"
+build_variant "$KERN_SRC" "$KERN_OUT" "-gaokun3-g${SHORT_HASH}"
 ccache -s || true
 
 BASE_KREL="$(cat "$KERN_OUT/include/config/kernel.release")"
@@ -90,7 +92,7 @@ git -C "$KERN_SRC_EL2" add -A
 git -C "$KERN_SRC_EL2" commit -m "Apply EL2 patches"
 
 ccache -z || true
-build_variant "$KERN_SRC_EL2" "$KERN_OUT_EL2" "-gaokun3-el2"
+build_variant "$KERN_SRC_EL2" "$KERN_OUT_EL2" "-gaokun3-el2-g${SHORT_HASH}"
 ccache -s || true
 
 EL2_KREL="$(cat "$KERN_OUT_EL2/include/config/kernel.release")"
