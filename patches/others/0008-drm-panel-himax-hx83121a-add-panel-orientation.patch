@@ -1,41 +1,37 @@
-From c97e2e34be68e7f134be867f1330bf7bb78619be Mon Sep 17 00:00:00 2001
+From 7a35b25f68bd5e819364c2d1d60de6b76a248d95 Mon Sep 17 00:00:00 2001
 From: psacal <2658842706@qq.com>
-Date: Wed, 3 Jun 2026 14:56:24 +0000
-Subject: [PATCH] drm/panel: himax-hx83121a: add get_orientation callback
+Date: Wed, 3 Jun 2026 16:21:28 +0000
+Subject: [PATCH] drm/panel: himax-hx83121a: set panel_orientation in get_modes
 
-Implement the .get_orientation panel callback returning
-DRM_MODE_PANEL_ORIENTATION_NORMAL. This allows
-drm_bridge_connector_init() to automatically call
-drm_panel_bridge_set_orientation() at the right time,
-creating the "panel orientation" DRM property for userspace
-(e.g. mutter) to enable automatic screen rotation.
-
-Signed-off-by: psacal <2658842706@qq.com>
+  MSM DSI doesn't use drm_panel_bridge, so the .get_orientation callback
+  is never invoked through the bridge chain. Set the orientation directly
+  in get_modes() as a safety net, following panel-sitronix-st7701.
 ---
- drivers/gpu/drm/panel/panel-himax-hx83121a.c | 6 ++++++
- 1 file changed, 6 insertions(+)
+ drivers/gpu/drm/panel/panel-himax-hx83121a.c | 4 ++++
+ 1 file changed, 4 insertions(+)
 
 diff --git a/drivers/gpu/drm/panel/panel-himax-hx83121a.c b/drivers/gpu/drm/panel/panel-himax-hx83121a.c
-index 028b615c6..1d47ce580 100644
+index 1d47ce580..63513bfd1 100644
 --- a/drivers/gpu/drm/panel/panel-himax-hx83121a.c
 +++ b/drivers/gpu/drm/panel/panel-himax-hx83121a.c
-@@ -186,10 +186,16 @@ static int himax_get_modes(struct drm_panel *panel,
+@@ -17,6 +17,7 @@
+ 
+ #include <drm/display/drm_dsc.h>
+ #include <drm/display/drm_dsc_helper.h>
++#include <drm/drm_connector.h>
+ #include <drm/drm_mipi_dsi.h>
+ #include <drm/drm_modes.h>
+ #include <drm/drm_panel.h>
+@@ -183,6 +184,9 @@ static int himax_get_modes(struct drm_panel *panel,
+ 	connector->display_info.height_mm = desc->height_mm;
+ 	connector->display_info.bpc = desc->bpc;
+ 
++	drm_connector_set_panel_orientation(connector,
++					    DRM_MODE_PANEL_ORIENTATION_NORMAL);
++
  	return num_modes;
  }
  
-+static enum drm_panel_orientation himax_get_orientation(struct drm_panel *panel)
-+{
-+	return DRM_MODE_PANEL_ORIENTATION_NORMAL;
-+}
-+
- static const struct drm_panel_funcs himax_panel_funcs = {
- 	.prepare = himax_prepare,
- 	.unprepare = himax_unprepare,
- 	.get_modes = himax_get_modes,
-+	.get_orientation = himax_get_orientation,
- };
- 
- static int himax_bl_update_status(struct backlight_device *bl)
 -- 
 2.53.0
 
