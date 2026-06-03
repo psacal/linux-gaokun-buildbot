@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=ssc-bridge 传感器桥接
+Comment=Qualcomm SLPI 传感器桥接调参与状态监控
+Icon=ssc-bridge-tuner
+Exec=ssc-bridge-tuner
+Terminal=false
+Categories=Settings;HardwareSettings;
