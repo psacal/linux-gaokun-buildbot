@@ -101,19 +101,23 @@ _TR = {
     "err_service":          "systemd 操作失败：{err}",
     "err_open_link":        "打开链接失败：{err}",
     "err_helper_missing":   "未找到提权写入 helper：{path}",
-    "orientation_normal":   "纵向",
-    "orientation_left":     "横向",
-    "orientation_right":    "横向翻转",
-    "orientation_bottom":   "纵向翻转",
+    "orientation_normal":   "横向",
+    "orientation_left":     "纵向",
+    "orientation_right":    "纵向翻转",
+    "orientation_bottom":   "横向翻转",
+    "orientation_flat_up":  "屏幕朝上",
+    "orientation_flat_down":"屏幕朝下",
     "orientation_tilted":   "倾斜",
 }
 
 ORIENTATION_LABELS = {
-    "normal":     "orientation_normal",
-    "bottom-up":  "orientation_bottom",
-    "left-up":    "orientation_left",
-    "right-up":   "orientation_right",
-    "tilted":     "orientation_tilted",
+    "normal":      "orientation_normal",
+    "bottom-up":   "orientation_bottom",
+    "left-up":     "orientation_left",
+    "right-up":    "orientation_right",
+    "flat-up":     "orientation_flat_up",
+    "flat-down":   "orientation_flat_down",
+    "tilted":      "orientation_tilted",
 }
 
 _DESC = {
@@ -274,6 +278,9 @@ def read_light():
 def compute_orientation(x, y, z):
     """Determine device orientation from accelerometer vector.
 
+    MateBook E Go sensor axes (identity mount matrix):
+      X → right, Y → toward camera, Z → out of screen toward user.
+
     Returns (label_key, pitch_deg, roll_deg).
     """
     pitch = math.degrees(math.atan2(x, math.sqrt(y * y + z * z)))
@@ -282,14 +289,24 @@ def compute_orientation(x, y, z):
     ax, ay, az = abs(x), abs(y), abs(z)
     threshold = 4.0  # m/s² — gravity is ~9.81
 
-    if az > ay and az > ax and z > threshold:
+    # Laptop mode: keyboard at bottom → gravity on -Y → 横向
+    if ay > ax and ay > az and y < -threshold:
         return ("normal", pitch, roll)
-    elif az > ay and az > ax and z < -threshold:
+    # Laptop upside down: keyboard at top → gravity on +Y → 横向翻转
+    elif ay > ax and ay > az and y > threshold:
         return ("bottom-up", pitch, roll)
+    # Rotated 90° clockwise: right edge down → gravity on +X → 纵向
     elif ax > ay and ax > az and x > threshold:
         return ("left-up", pitch, roll)
+    # Rotated 90° counter-clockwise: left edge down → gravity on -X → 纵向翻转
     elif ax > ay and ax > az and x < -threshold:
         return ("right-up", pitch, roll)
+    # Flat on desk: screen facing up → gravity on -Z
+    elif az > ax and az > ay and z < -threshold:
+        return ("flat-up", pitch, roll)
+    # Flat face down
+    elif az > ax and az > ay and z > threshold:
+        return ("flat-down", pitch, roll)
     else:
         return ("tilted", pitch, roll)
 
