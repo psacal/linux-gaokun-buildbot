@@ -159,6 +159,10 @@ static void accel_cb(SSCSensorAccelerometer *sensor,
 
     apply_mount_matrix(s->mount, &x, &y, &z);
 
+    /* Always write file for tuner monitoring, regardless of uinput */
+    if (s->file_path)
+        write_vec3_file(s->file_path, x, y, z);
+
     if (s->uinput_fd >= 0) {
         int vx = (int)(x * ACCEL_SCALE * imu_output_scale);
         int vy = (int)(y * ACCEL_SCALE * imu_output_scale);
@@ -168,8 +172,6 @@ static void accel_cb(SSCSensorAccelerometer *sensor,
         emit_abs(s->uinput_fd, ABS_Y, vy);
         emit_abs(s->uinput_fd, ABS_Z, vz);
         emit_syn(s->uinput_fd);
-    } else if (s->file_path) {
-        write_vec3_file(s->file_path, x, y, z);
     }
 }
 
@@ -182,6 +184,10 @@ static void gyro_cb(SSCSensorGyroscope *sensor,
 
     apply_mount_matrix(s->mount, &x, &y, &z);
 
+    /* Always write file for tuner monitoring, regardless of uinput */
+    if (s->file_path)
+        write_vec3_file(s->file_path, x, y, z);
+
     if (s->uinput_fd >= 0) {
         int vx = (int)(x * GYRO_SCALE * imu_output_scale);
         int vy = (int)(y * GYRO_SCALE * imu_output_scale);
@@ -191,8 +197,6 @@ static void gyro_cb(SSCSensorGyroscope *sensor,
         emit_abs(s->uinput_fd, ABS_RY, vy);
         emit_abs(s->uinput_fd, ABS_RZ, vz);
         emit_syn(s->uinput_fd);
-    } else if (s->file_path) {
-        write_vec3_file(s->file_path, x, y, z);
     }
 }
 
@@ -487,11 +491,10 @@ int main(int argc, char **argv)
             g_clear_error(&err);
         } else {
             parse_mount_matrix(accel.env_matrix, accel.mount);
-            if (imu_fd < 0) {
-                accel.file_path = "/run/ssc-bridge/accel";
-                g_info("Accelerometer: file fallback → %s",
+            accel.file_path = "/run/ssc-bridge/accel";
+            if (imu_fd < 0)
+                g_info("Accelerometer: file-only mode → %s",
                        accel.file_path);
-            }
             accel.active = TRUE;
             g_signal_connect(as, "measurement",
                              G_CALLBACK(accel_cb), &accel);
@@ -532,10 +535,10 @@ int main(int argc, char **argv)
             g_clear_error(&err);
         } else {
             parse_mount_matrix(gyro.env_matrix, gyro.mount);
-            if (imu_fd < 0) {
-                gyro.file_path = "/run/ssc-bridge/gyro";
-                g_info("Gyroscope: file fallback → %s", gyro.file_path);
-            }
+            gyro.file_path = "/run/ssc-bridge/gyro";
+            if (imu_fd < 0)
+                g_info("Gyroscope: file-only mode → %s",
+                       gyro.file_path);
             gyro.active = TRUE;
             g_signal_connect(gs, "measurement",
                              G_CALLBACK(gyro_cb), &gyro);
