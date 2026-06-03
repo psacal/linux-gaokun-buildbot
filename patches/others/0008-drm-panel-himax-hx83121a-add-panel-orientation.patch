@@ -3,14 +3,19 @@ From: psacal <2658842706@qq.com>
 Date: Thu, 3 Jun 2026 00:00:00 +0800
 Subject: [PATCH] drm/panel: himax-hx83121a: expose panel orientation
 
-Call drm_connector_set_panel_orientation() so that the "panel orientation"
-DRM connector property is created. This allows mutter (GNOME 50+) to
-enable PanelOrientationManaged for automatic screen rotation.
+Set panel_orientation on the DRM connector so userspace (mutter) can
+read the "panel orientation" property and enable automatic screen
+rotation via PanelOrientationManaged.
+
+Uses drm_connector_set_panel_orientation() only when the connector is
+fully registered, avoiding a crash during early probe. Otherwise falls
+back to setting display_info.panel_orientation directly, which gets
+picked up on the next modeset.
 
 Signed-off-by: psacal <2658842706@qq.com>
 ---
- drivers/gpu/drm/panel/panel-himax-hx83121a.c | 3 +++
- 1 file changed, 3 insertions(+)
+ drivers/gpu/drm/panel/panel-himax-hx83121a.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
 
 diff --git a/drivers/gpu/drm/panel/panel-himax-hx83121a.c b/drivers/gpu/drm/panel/panel-himax-hx83121a.c
 index 028b615c6..0000000000 100644
@@ -24,12 +29,16 @@ index 028b615c6..0000000000 100644
 
  #include <video/mipi_display.h>
 
-@@ -182,6 +183,8 @@ static int himax_get_modes(struct drm_panel *panel,
+@@ -182,6 +183,12 @@ static int himax_get_modes(struct drm_panel *panel,
  	connector->display_info.width_mm = desc->width_mm;
  	connector->display_info.height_mm = desc->height_mm;
  	connector->display_info.bpc = desc->bpc;
-+	drm_connector_set_panel_orientation(connector,
-+					     DRM_MODE_PANEL_ORIENTATION_NORMAL);
++	if (connector->registration_state == DRM_CONNECTOR_REGISTERED)
++		drm_connector_set_panel_orientation(connector,
++						     DRM_MODE_PANEL_ORIENTATION_NORMAL);
++	else
++		connector->display_info.panel_orientation =
++			DRM_MODE_PANEL_ORIENTATION_NORMAL;
 
  	return num_modes;
  }
