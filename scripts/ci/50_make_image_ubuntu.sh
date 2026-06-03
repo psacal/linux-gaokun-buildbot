@@ -73,6 +73,9 @@ sudo chroot "$MNT" /usr/bin/env KREL="$KREL" KREL_EL2="$KREL_EL2" BUILD_EL2="$BU
 # Build patched hexagonrpcd (CR-strip for SLPI sensor support)
 /tmp/gaokun/scripts/ci/lib/install-hexagonrpcd.sh || echo "WARNING: hexagonrpcd build failed, using stock binary"
 
+# Prevent apt from upgrading over the patched hexagonrpcd
+apt-mark hold hexagonrpcd || true
+
 # Build ssc-bridge (experimental, disabled by default)
 apt-get install -y libssc-dev libglib2.0-dev libqmi-glib-dev libqrtr-glib-dev make gcc pkg-config || true
 make -C /tmp/gaokun/tools/sensor && make -C /tmp/gaokun/tools/sensor install || echo "WARNING: ssc-bridge build failed"
