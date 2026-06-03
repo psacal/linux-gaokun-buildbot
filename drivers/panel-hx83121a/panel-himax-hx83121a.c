@@ -20,7 +20,6 @@
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_modes.h>
 #include <drm/drm_panel.h>
-#include <drm/drm_connector.h>
 
 #include <video/mipi_display.h>
 
@@ -183,20 +182,20 @@ static int himax_get_modes(struct drm_panel *panel,
 	connector->display_info.width_mm = desc->width_mm;
 	connector->display_info.height_mm = desc->height_mm;
 	connector->display_info.bpc = desc->bpc;
-	if (connector->registration_state == DRM_CONNECTOR_REGISTERED)
-		drm_connector_set_panel_orientation(connector,
-						     DRM_MODE_PANEL_ORIENTATION_NORMAL);
-	else
-		connector->display_info.panel_orientation =
-			DRM_MODE_PANEL_ORIENTATION_NORMAL;
 
 	return num_modes;
+}
+
+static enum drm_panel_orientation himax_get_orientation(struct drm_panel *panel)
+{
+	return DRM_MODE_PANEL_ORIENTATION_NORMAL;
 }
 
 static const struct drm_panel_funcs himax_panel_funcs = {
 	.prepare = himax_prepare,
 	.unprepare = himax_unprepare,
 	.get_modes = himax_get_modes,
+	.get_orientation = himax_get_orientation,
 };
 
 static int himax_bl_update_status(struct backlight_device *bl)
@@ -604,8 +603,8 @@ static int himax_probe(struct mipi_dsi_device *dsi)
 
 	ctx = devm_drm_panel_alloc(dev, struct himax, panel, &himax_panel_funcs,
 				   DRM_MODE_CONNECTOR_DSI);
-	if (!ctx)
-		return -ENOMEM;
+	if (IS_ERR(ctx))
+		return PTR_ERR(ctx);
 
 	ret = devm_regulator_bulk_get_const(&dsi->dev,
 					    ARRAY_SIZE(himax_supplies),

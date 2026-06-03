@@ -1,46 +1,41 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From c97e2e34be68e7f134be867f1330bf7bb78619be Mon Sep 17 00:00:00 2001
 From: psacal <2658842706@qq.com>
-Date: Thu, 3 Jun 2026 00:00:00 +0800
-Subject: [PATCH] drm/panel: himax-hx83121a: expose panel orientation
+Date: Wed, 3 Jun 2026 14:56:24 +0000
+Subject: [PATCH] drm/panel: himax-hx83121a: add get_orientation callback
 
-Set panel_orientation on the DRM connector so userspace (mutter) can
-read the "panel orientation" property and enable automatic screen
-rotation via PanelOrientationManaged.
-
-Uses drm_connector_set_panel_orientation() only when the connector is
-fully registered, avoiding a crash during early probe. Otherwise falls
-back to setting display_info.panel_orientation directly, which gets
-picked up on the next modeset.
+Implement the .get_orientation panel callback returning
+DRM_MODE_PANEL_ORIENTATION_NORMAL. This allows
+drm_bridge_connector_init() to automatically call
+drm_panel_bridge_set_orientation() at the right time,
+creating the "panel orientation" DRM property for userspace
+(e.g. mutter) to enable automatic screen rotation.
 
 Signed-off-by: psacal <2658842706@qq.com>
 ---
- drivers/gpu/drm/panel/panel-himax-hx83121a.c | 8 ++++++++
- 1 file changed, 8 insertions(+)
+ drivers/gpu/drm/panel/panel-himax-hx83121a.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
 
 diff --git a/drivers/gpu/drm/panel/panel-himax-hx83121a.c b/drivers/gpu/drm/panel/panel-himax-hx83121a.c
-index 028b615c6..0000000000 100644
+index 028b615c6..1d47ce580 100644
 --- a/drivers/gpu/drm/panel/panel-himax-hx83121a.c
 +++ b/drivers/gpu/drm/panel/panel-himax-hx83121a.c
-@@ -20,6 +20,7 @@
- #include <drm/drm_mipi_dsi.h>
- #include <drm/drm_modes.h>
- #include <drm/drm_panel.h>
-+#include <drm/drm_connector.h>
-
- #include <video/mipi_display.h>
-
-@@ -182,6 +183,12 @@ static int himax_get_modes(struct drm_panel *panel,
- 	connector->display_info.width_mm = desc->width_mm;
- 	connector->display_info.height_mm = desc->height_mm;
- 	connector->display_info.bpc = desc->bpc;
-+	if (connector->registration_state == DRM_CONNECTOR_REGISTERED)
-+		drm_connector_set_panel_orientation(connector,
-+						     DRM_MODE_PANEL_ORIENTATION_NORMAL);
-+	else
-+		connector->display_info.panel_orientation =
-+			DRM_MODE_PANEL_ORIENTATION_NORMAL;
-
+@@ -186,10 +186,16 @@ static int himax_get_modes(struct drm_panel *panel,
  	return num_modes;
  }
---
-2.43.0
+ 
++static enum drm_panel_orientation himax_get_orientation(struct drm_panel *panel)
++{
++	return DRM_MODE_PANEL_ORIENTATION_NORMAL;
++}
++
+ static const struct drm_panel_funcs himax_panel_funcs = {
+ 	.prepare = himax_prepare,
+ 	.unprepare = himax_unprepare,
+ 	.get_modes = himax_get_modes,
++	.get_orientation = himax_get_orientation,
+ };
+ 
+ static int himax_bl_update_status(struct backlight_device *bl)
+-- 
+2.53.0
+
