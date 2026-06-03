@@ -9,6 +9,7 @@ install_common_image_assets() {
     "tools/wifi/set-stable-wifi-mac.py:/usr/local/bin/set-stable-wifi-mac.py"
     "tools/monitors/gdm-monitor-sync:/usr/local/bin/gdm-monitor-sync"
     "tools/touchscreen-tuner/touchscreen-tune:/usr/local/bin/touchscreen-tune"
+    "tools/sensor/ssc-bridge-tune:/usr/local/bin/ssc-bridge-tune"
     "tools/touchpad/huawei-tp-activate.py:/usr/local/bin/huawei-tp-activate.py"
   )
   local service_assets=(
@@ -23,6 +24,8 @@ install_common_image_assets() {
     "tools/touchscreen-tuner/tune.py:/usr/local/lib/gaokun-touchscreen-tuner/tune.py"
     "tools/touchscreen-tuner/tune-icon.svg:/usr/local/lib/gaokun-touchscreen-tuner/tune-icon.svg"
     "tools/touchscreen-tuner/touchscreen-tune.desktop:/usr/share/applications/touchscreen-tune.desktop"
+    "tools/sensor/ssc-bridge-tuner/tune.py:/usr/local/lib/gaokun-ssc-bridge-tuner/tune.py"
+    "tools/sensor/ssc-bridge-tuner/ssc-bridge-tuner.desktop:/usr/share/applications/ssc-bridge-tuner.desktop"
     "tools/image-assets/usr/local/share/gaokun/monitors.xml:/usr/local/share/gaokun/monitors.xml"
   )
   local asset src dest
@@ -35,6 +38,7 @@ install_common_image_assets() {
     "$rootfs_dir/etc/gaokun" \
     "$rootfs_dir/usr/local/bin" \
     "$rootfs_dir/usr/local/lib/gaokun-touchscreen-tuner" \
+    "$rootfs_dir/usr/local/lib/gaokun-ssc-bridge-tuner" \
     "$rootfs_dir/usr/share/alsa/ucm2/Qualcomm/sc8280xp" \
     "$rootfs_dir/usr/share/applications" \
     "$rootfs_dir/usr/local/share/gaokun"
