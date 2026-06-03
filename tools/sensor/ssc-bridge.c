@@ -1,16 +1,18 @@
 /*
- * ssc-bridge — Bridge Qualcomm SSC sensor data to Linux evdev/IIO
+ * ssc-bridge — Bridge Qualcomm SSC sensor data to Linux evdev
  *
  * Reads sensor data via libssc (GLib/GObject API) and exposes it:
- *   - Accelerometer → uinput evdev (INPUT_PROP_ACCELEROMETER | ABS_X/Y/Z)
- *   - Gyroscope     → uinput evdev (ABS_RX/RY/RZ)
- *   - Light sensor  → /run/ssc-bridge/light (text file, lux value)
+ *   - Accelerometer + Gyroscope → single uinput evdev IMU device
+ *   - Light sensor              → /run/ssc-bridge/light (text file)
  *
- * This fills the gap between Qualcomm's SLPI DSP sensor pipeline and
- * standard Linux userspace (iio-sensor-proxy, GNOME auto-rotation).
+ * Fills the gap between Qualcomm's SLPI DSP sensor pipeline and
+ * standard Linux userspace (iio-sensor-proxy, InputPlumber, GNOME).
+ *
+ * Incorporates architectural improvements from ssc-uinput
+ * (https://github.com/gio3k/ssc-uinput) by Gianni S. <me@gio.blue>.
  *
  * Build: make
- * Usage: ssc-bridge [--accel] [--gyro] [--light] [--all]
+ * Usage: ssc-bridge [--accel] [--gyro] [--light] [--all] [--daemon]
  *
  * SPDX-License-Identifier: MIT
  */
@@ -38,42 +40,101 @@
  * scale = 1/256 * 9.81).  Match that convention:
  *   raw = (m_s² / 9.81) * 256 = m_s² * 26.10
  * Range: ±4G = ±1024 raw units.  */
-#define ACCEL_1G        256
-#define ACCEL_SCALE     (ACCEL_1G / 9.81f)  /* 26.10 units per m/s² */
-#define ACCEL_RES       ((int)(ACCEL_1G / 9.81f))
-#define ACCEL_RANGE     (4 * ACCEL_1G)       /* ±4G = ±1024 */
+#define ACCEL_1G            256
+#define ACCEL_SCALE         (ACCEL_1G / 9.81f)   /* 26.10 units per m/s² */
+#define ACCEL_RES           ((int)(ACCEL_1G / 9.81f))
+#define ACCEL_BASE_RANGE    (4 * ACCEL_1G)        /* ±4G = ±1024 */
 
-/* Gyroscope: libssc reports rad/s.  Convert to device units.
- * iio-sensor-proxy expects deg/s for in_anglvel.  */
-#define GYRO_SCALE      (1024.0f * 180.0f / (float)G_PI)  /* units per rad/s */
-#define GYRO_RES        585     /* ≈ 180/π * 1024 / 1024 … units per deg/s */
-#define GYRO_RANGE      2097152 /* ±2000 deg/s * 1024 */
+/* Gyroscope: libssc reports rad/s.  Convert to deg/s * 1024.
+ * Range: ±2000 deg/s.  */
+#define GYRO_DEG_PER_RAD    (180.0f / (float)G_PI)
+#define GYRO_UNITS_PER_DEG  1024.0f
+#define GYRO_SCALE          (GYRO_UNITS_PER_DEG * GYRO_DEG_PER_RAD)
+#define GYRO_RES            585
+#define GYRO_BASE_RANGE     2097152               /* ±2000 deg/s * 1024 */
 
-/* Light sensor: just write raw lux to a file.  */
+/* ── Configuration defaults ─────────────────────────────────────── */
+
+#define SSC_OPEN_TIMEOUT    30              /* seconds per sensor */
+#define DEFAULT_DEVICE_NAME "ssc-imu"
 
 /* ── Data types ─────────────────────────────────────────────────── */
 
 typedef float matrix3x3[9];   /* row-major: [r0c0, r0c1, r0c2, r1c0, ...] */
 
 typedef struct {
-    const char  *name;          /* evdev device name            */
-    const char  *env_matrix;    /* SSCB_xxx_MOUNT_MATRIX env var */
-    int          uinput_fd;     /* /dev/uinput fd (-1 if unavailable) */
-    const char  *file_path;     /* fallback file output (NULL if none) */
-    matrix3x3    mount;         /* parsed mount matrix           */
+    const char  *env_matrix;    /* SSCB_xxx_MOUNT_MATRIX env var     */
+    int          uinput_fd;     /* shared IMU fd (-1 if unavailable) */
+    const char  *file_path;     /* fallback file (NULL if none)      */
+    matrix3x3    mount;         /* parsed mount matrix               */
     gboolean     active;
 } Sensor;
 
-/* ── Forward declarations ──────────────────────────────────────── */
+typedef struct {
+    GCancellable *cancellable;
+    guint         timeout_id;
+} SensorOpen;
 
-static void parse_mount_matrix(const char *env_name, matrix3x3 out);
-static void apply_mount_matrix(const matrix3x3 m, float *x, float *y, float *z);
-static int  uinput_create_accel(void);
-static int  uinput_create_gyro(void);
-static void emit_abs(int fd, int code, int value);
-static void emit_syn(int fd);
-static void write_light_file(const char *path, float lux);
-static gboolean on_signal_exit(gpointer user_data);
+/* ── Globals ────────────────────────────────────────────────────── */
+
+static GMainLoop *main_loop = NULL;
+static float      imu_output_scale = 1.0f;
+
+/* ── Forward declarations ───────────────────────────────────────── */
+
+static SensorOpen sensor_open_begin(guint timeout_seconds);
+static void       sensor_open_end(SensorOpen *so);
+static void       parse_mount_matrix(const char *env, matrix3x3 out);
+static void       apply_mount_matrix(const matrix3x3 m, float *x, float *y, float *z);
+static int        uinput_create_imu(const char *name,
+                                    int accel_range, int gyro_range);
+static void       emit_abs(int fd, int code, int value);
+static void       emit_syn(int fd);
+static void       write_vec3_file(const char *path, float x, float y, float z);
+static void       write_light_file(const char *path, float lux);
+static gboolean   on_signal_exit(gpointer user_data);
+static float      parse_output_scale(void);
+
+/* ── Sensor open helpers (GCancellable + timeout) ───────────────── */
+
+static gboolean cancel_timeout_cb(gpointer user_data)
+{
+    g_cancellable_cancel(G_CANCELLABLE(user_data));
+    return G_SOURCE_REMOVE;
+}
+
+static SensorOpen sensor_open_begin(guint timeout_seconds)
+{
+    SensorOpen so;
+    so.cancellable = g_cancellable_new();
+    so.timeout_id = g_timeout_add_seconds(timeout_seconds,
+                                          cancel_timeout_cb,
+                                          so.cancellable);
+    return so;
+}
+
+static void sensor_open_end(SensorOpen *so)
+{
+    /* Remove timeout source before unref — prevents use-after-free
+     * if the cancellable was freed while the timeout was pending. */
+    g_source_remove(so->timeout_id);
+    g_object_unref(so->cancellable);
+}
+
+/* ── Configuration parsing ──────────────────────────────────────── */
+
+static float parse_output_scale(void)
+{
+    const char *val = g_getenv("SSCB_IMU_OUTPUT_SCALE");
+    if (!val || !*val) return 1.0f;
+
+    float scale = g_ascii_strtod(val, NULL);
+    if (scale <= 0.0f) {
+        g_warning("SSCB_IMU_OUTPUT_SCALE must be > 0, using 1.0");
+        return 1.0f;
+    }
+    return scale;
+}
 
 /* ── Sensor callbacks ───────────────────────────────────────────── */
 
@@ -99,17 +160,9 @@ static void accel_cb(SSCSensorAccelerometer *sensor,
     apply_mount_matrix(s->mount, &x, &y, &z);
 
     if (s->uinput_fd >= 0) {
-        /* Scale m/s² → device units, clamp to range */
-        int vx = (int)(x * ACCEL_SCALE);
-        int vy = (int)(y * ACCEL_SCALE);
-        int vz = (int)(z * ACCEL_SCALE);
-
-        if (vx < -ACCEL_RANGE) vx = -ACCEL_RANGE;
-        if (vx >  ACCEL_RANGE) vx =  ACCEL_RANGE;
-        if (vy < -ACCEL_RANGE) vy = -ACCEL_RANGE;
-        if (vy >  ACCEL_RANGE) vy =  ACCEL_RANGE;
-        if (vz < -ACCEL_RANGE) vz = -ACCEL_RANGE;
-        if (vz >  ACCEL_RANGE) vz =  ACCEL_RANGE;
+        int vx = (int)(x * ACCEL_SCALE * imu_output_scale);
+        int vy = (int)(y * ACCEL_SCALE * imu_output_scale);
+        int vz = (int)(z * ACCEL_SCALE * imu_output_scale);
 
         emit_abs(s->uinput_fd, ABS_X, vx);
         emit_abs(s->uinput_fd, ABS_Y, vy);
@@ -130,17 +183,9 @@ static void gyro_cb(SSCSensorGyroscope *sensor,
     apply_mount_matrix(s->mount, &x, &y, &z);
 
     if (s->uinput_fd >= 0) {
-        /* Scale rad/s → device units, clamp */
-        int vx = (int)(x * GYRO_SCALE);
-        int vy = (int)(y * GYRO_SCALE);
-        int vz = (int)(z * GYRO_SCALE);
-
-        if (vx < -GYRO_RANGE) vx = -GYRO_RANGE;
-        if (vx >  GYRO_RANGE) vx =  GYRO_RANGE;
-        if (vy < -GYRO_RANGE) vy = -GYRO_RANGE;
-        if (vy >  GYRO_RANGE) vy =  GYRO_RANGE;
-        if (vz < -GYRO_RANGE) vz = -GYRO_RANGE;
-        if (vz >  GYRO_RANGE) vz =  GYRO_RANGE;
+        int vx = (int)(x * GYRO_SCALE * imu_output_scale);
+        int vy = (int)(y * GYRO_SCALE * imu_output_scale);
+        int vz = (int)(z * GYRO_SCALE * imu_output_scale);
 
         emit_abs(s->uinput_fd, ABS_RX, vx);
         emit_abs(s->uinput_fd, ABS_RY, vy);
@@ -159,9 +204,10 @@ static void light_cb(SSCSensorLight *sensor,
     write_light_file(path, intensity);
 }
 
-/* ── uinput helpers ─────────────────────────────────────────────── */
+/* ── uinput: single IMU device (accel + gyro axes together) ─────── */
 
-static int uinput_create_accel(void)
+static int uinput_create_imu(const char *name,
+                             int accel_range, int gyro_range)
 {
     int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
     if (fd < 0) {
@@ -169,85 +215,58 @@ static int uinput_create_accel(void)
         return -1;
     }
 
-    /* Enable event types */
     if (ioctl(fd, UI_SET_EVBIT, EV_ABS) < 0 ||
         ioctl(fd, UI_SET_EVBIT, EV_SYN) < 0) {
         g_warning("UI_SET_EVBIT failed: %s", strerror(errno));
         close(fd); return -1;
     }
 
-    /* Mark as accelerometer for iio-sensor-proxy */
+    /* Mark as accelerometer for iio-sensor-proxy.
+     * Gyroscope axes (ABS_RX/RY/RZ) on the same device are visible
+     * to InputPlumber for gaming / motion control use cases. */
     if (ioctl(fd, UI_SET_PROPBIT, INPUT_PROP_ACCELEROMETER) < 0) {
         g_warning("UI_SET_PROPBIT failed: %s", strerror(errno));
         close(fd); return -1;
     }
 
-    /* Set up ABS axes */
+    /* ── Accelerometer axes: ABS_X, ABS_Y, ABS_Z ─────────────── */
     struct uinput_abs_setup abs_setup = {0};
-    int axes[] = {ABS_X, ABS_Y, ABS_Z};
+    int accel_axes[] = {ABS_X, ABS_Y, ABS_Z};
     for (int i = 0; i < 3; i++) {
-        abs_setup.code = axes[i];
-        abs_setup.absinfo.value    = 0;
-        abs_setup.absinfo.minimum  = -ACCEL_RANGE;
-        abs_setup.absinfo.maximum  =  ACCEL_RANGE;
-        abs_setup.absinfo.fuzz     = 128;   /* ~0.125 m/s² noise tolerance */
-        abs_setup.absinfo.flat     = 64;    /* ~0.06 m/s² dead zone        */
+        abs_setup.code = accel_axes[i];
+        abs_setup.absinfo.value      = 0;
+        abs_setup.absinfo.minimum    = -accel_range;
+        abs_setup.absinfo.maximum    =  accel_range;
+        abs_setup.absinfo.fuzz       = 128;
+        abs_setup.absinfo.flat       = 64;
         abs_setup.absinfo.resolution = ACCEL_RES;
         if (ioctl(fd, UI_ABS_SETUP, &abs_setup) < 0) {
-            g_warning("UI_ABS_SETUP %d failed: %s", axes[i], strerror(errno));
+            g_warning("UI_ABS_SETUP %d failed: %s",
+                      accel_axes[i], strerror(errno));
             close(fd); return -1;
         }
     }
 
-    /* Create device */
-    struct uinput_setup usetup = {0};
-    strncpy(usetup.name, "ssc-accelerometer", UINPUT_MAX_NAME_SIZE - 1);
-    usetup.id.bustype = BUS_VIRTUAL;
-    usetup.id.vendor  = 0;
-    usetup.id.product = 0;
-    usetup.id.version = 1;
-    if (ioctl(fd, UI_DEV_SETUP, &usetup) < 0 ||
-        ioctl(fd, UI_DEV_CREATE) < 0) {
-        g_warning("UI_DEV_CREATE failed: %s", strerror(errno));
-        close(fd); return -1;
-    }
-
-    g_info("Created uinput device: ssc-accelerometer");
-    return fd;
-}
-
-static int uinput_create_gyro(void)
-{
-    int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
-    if (fd < 0) {
-        g_warning("Cannot open /dev/uinput: %s", strerror(errno));
-        return -1;
-    }
-
-    if (ioctl(fd, UI_SET_EVBIT, EV_ABS) < 0 ||
-        ioctl(fd, UI_SET_EVBIT, EV_SYN) < 0) {
-        g_warning("UI_SET_EVBIT failed: %s", strerror(errno));
-        close(fd); return -1;
-    }
-
-    struct uinput_abs_setup abs_setup = {0};
-    int axes[] = {ABS_RX, ABS_RY, ABS_RZ};
+    /* ── Gyroscope axes: ABS_RX, ABS_RY, ABS_RZ ──────────────── */
+    int gyro_axes[] = {ABS_RX, ABS_RY, ABS_RZ};
     for (int i = 0; i < 3; i++) {
-        abs_setup.code = axes[i];
-        abs_setup.absinfo.value    = 0;
-        abs_setup.absinfo.minimum  = -GYRO_RANGE;
-        abs_setup.absinfo.maximum  =  GYRO_RANGE;
-        abs_setup.absinfo.fuzz     = 512;
-        abs_setup.absinfo.flat     = 256;
+        abs_setup.code = gyro_axes[i];
+        abs_setup.absinfo.value      = 0;
+        abs_setup.absinfo.minimum    = -gyro_range;
+        abs_setup.absinfo.maximum    =  gyro_range;
+        abs_setup.absinfo.fuzz       = 512;
+        abs_setup.absinfo.flat       = 256;
         abs_setup.absinfo.resolution = GYRO_RES;
         if (ioctl(fd, UI_ABS_SETUP, &abs_setup) < 0) {
-            g_warning("UI_ABS_SETUP %d failed: %s", axes[i], strerror(errno));
+            g_warning("UI_ABS_SETUP %d failed: %s",
+                      gyro_axes[i], strerror(errno));
             close(fd); return -1;
         }
     }
 
+    /* Create the device */
     struct uinput_setup usetup = {0};
-    strncpy(usetup.name, "ssc-gyroscope", UINPUT_MAX_NAME_SIZE - 1);
+    strncpy(usetup.name, name, UINPUT_MAX_NAME_SIZE - 1);
     usetup.id.bustype = BUS_VIRTUAL;
     usetup.id.vendor  = 0;
     usetup.id.product = 0;
@@ -258,9 +277,12 @@ static int uinput_create_gyro(void)
         close(fd); return -1;
     }
 
-    g_info("Created uinput device: ssc-gyroscope");
+    g_info("Created uinput IMU device: %s (accel ±%d, gyro ±%d)",
+           name, accel_range, gyro_range);
     return fd;
 }
+
+/* ── Event emission ─────────────────────────────────────────────── */
 
 static void emit_abs(int fd, int code, int value)
 {
@@ -309,7 +331,7 @@ static void parse_mount_matrix(const char *env_name, matrix3x3 out)
     if (n == 9) {
         memcpy(out, v, sizeof(v));
     } else {
-        g_warning("%s has %d values (need 9), using identity matrix", env_name, n);
+        g_warning("%s has %d values (need 9), using identity", env_name, n);
     }
 }
 
@@ -341,8 +363,6 @@ static void write_light_file(const char *path, float lux)
 
 /* ── Signal / cleanup ───────────────────────────────────────────── */
 
-static GMainLoop *main_loop = NULL;
-
 static gboolean on_signal_exit(gpointer user_data)
 {
     (void)user_data;
@@ -357,9 +377,8 @@ static gboolean on_signal_exit(gpointer user_data)
 int main(int argc, char **argv)
 {
     gboolean want_accel = FALSE, want_gyro = FALSE, want_light = FALSE;
-    gboolean daemonize = FALSE;
+    gboolean daemonize  = FALSE;
 
-    /* Simple argument parsing — no GLib option context needed */
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--accel") || !strcmp(argv[i], "-a"))
             want_accel = TRUE;
@@ -371,23 +390,33 @@ int main(int argc, char **argv)
             want_accel = want_gyro = want_light = TRUE;
         else if (!strcmp(argv[i], "--daemon") || !strcmp(argv[i], "-d"))
             daemonize = TRUE;
-        else if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
+        else if (!strcmp(argv[i], "--version") || !strcmp(argv[i], "-V")) {
+            printf("ssc-bridge 2.0.0\n");
+            return 0;
+        } else if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
             printf("ssc-bridge — Bridge Qualcomm SSC sensors to Linux evdev\n\n"
                    "Usage: ssc-bridge [OPTIONS]\n\n"
                    "Options:\n"
                    "  --accel, -a    Bridge accelerometer\n"
                    "  --gyro,  -g    Bridge gyroscope\n"
                    "  --light, -l    Bridge ambient light sensor\n"
-                   "  --all          Bridge all available sensors (default)\n"
+                   "  --all          Bridge all sensors (default)\n"
                    "  --daemon, -d   Fork to background\n"
+                   "  --version, -V  Print version\n"
                    "  --help,  -h    Show this help\n\n"
-                   "Output (uinput preferred, file fallback if /dev/uinput unavailable):\n"
+                   "Output:\n"
+                   "  /dev/input/event*        → IMU device (accel + gyro)\n"
                    "  /run/ssc-bridge/light    → ambient light (lux)\n"
-                   "  /run/ssc-bridge/accel    → accelerometer (x,y,z m/s²)\n"
-                   "  /run/ssc-bridge/gyro     → gyroscope (x,y,z rad/s)\n\n"
+                   "  /run/ssc-bridge/accel    → accelerometer fallback file\n"
+                   "  /run/ssc-bridge/gyro     → gyroscope fallback file\n\n"
                    "Environment:\n"
-                   "  SSCB_ACCELEROMETER_MOUNT_MATRIX   9 comma-separated floats\n"
-                   "  SSCB_GYROSCOPE_MOUNT_MATRIX       9 comma-separated floats\n"
+                   "  SSCB_DEVICE_NAME                   uinput device name\n"
+                   "                                     (default: ssc-imu)\n"
+                   "  SSCB_IMU_OUTPUT_SCALE              scale factor for IMU\n"
+                   "                                     (default: 1.0,\n"
+                   "                                     use 100.0 for InputPlumber)\n"
+                   "  SSCB_ACCELEROMETER_MOUNT_MATRIX    9 comma-sep floats\n"
+                   "  SSCB_GYROSCOPE_MOUNT_MATRIX        9 comma-sep floats\n"
                    "  G_MESSAGES_DEBUG=all               Enable debug output\n");
             return 0;
         } else {
@@ -396,16 +425,26 @@ int main(int argc, char **argv)
         }
     }
 
-    /* Default: all sensors */
+    /* Default: bridge all sensors */
     if (!want_accel && !want_gyro && !want_light)
         want_accel = want_gyro = want_light = TRUE;
 
-    /* Daemonize before creating GLib main context */
+    /* ── Parse configuration ──────────────────────────────────── */
+    const char *dev_name = g_getenv("SSCB_DEVICE_NAME");
+    if (!dev_name || !*dev_name)
+        dev_name = DEFAULT_DEVICE_NAME;
+    imu_output_scale = parse_output_scale();
+    g_info("device=%s output_scale=%.2f", dev_name, imu_output_scale);
+
+    /* Compute uinput ranges (scaled) */
+    int accel_range = (int)(ACCEL_BASE_RANGE * imu_output_scale);
+    int gyro_range  = (int)(GYRO_BASE_RANGE  * imu_output_scale);
+
+    /* ── Daemonize ────────────────────────────────────────────── */
     if (daemonize) {
-        if (fork() > 0) _exit(0);     /* Parent exits */
+        if (fork() > 0) _exit(0);
         setsid();
         umask(0);
-        /* Close stdin, but keep stderr for GLib warnings */
         int null_fd = open("/dev/null", O_RDONLY);
         if (null_fd >= 0) {
             dup2(null_fd, STDIN_FILENO);
@@ -413,9 +452,8 @@ int main(int argc, char **argv)
         }
     }
 
-    /* Prepare light sensor output directory */
-    if (want_light)
-        g_mkdir_with_parents("/run/ssc-bridge", 0755);
+    /* Prepare output directory */
+    g_mkdir_with_parents("/run/ssc-bridge", 0755);
 
     /* Signal handlers */
     g_unix_signal_add(SIGINT,  on_signal_exit, NULL);
@@ -424,92 +462,137 @@ int main(int argc, char **argv)
 
     main_loop = g_main_loop_new(NULL, FALSE);
 
-    /* ── Accelerometer ─────────────────────────────────────────── */
-    Sensor accel = { .name = "ssc-accelerometer",
-                     .env_matrix = "SSCB_ACCELEROMETER_MOUNT_MATRIX",
-                     .uinput_fd = -1, .file_path = NULL, .active = FALSE };
+    /* ── Create shared IMU uinput device ──────────────────────── */
+    int imu_fd = -1;
+    if (want_accel || want_gyro)
+        imu_fd = uinput_create_imu(dev_name, accel_range, gyro_range);
+
+    /* ── Accelerometer ────────────────────────────────────────── */
+    Sensor accel = { .env_matrix = "SSCB_ACCELEROMETER_MOUNT_MATRIX",
+                     .uinput_fd = imu_fd,
+                     .file_path = NULL, .active = FALSE };
 
     if (want_accel) {
+        SensorOpen so = sensor_open_begin(SSC_OPEN_TIMEOUT);
         GError *err = NULL;
-        SSCSensorAccelerometer *as = ssc_sensor_accelerometer_new_sync(NULL, &err);
+        SSCSensorAccelerometer *as =
+            ssc_sensor_accelerometer_new_sync(so.cancellable, &err);
+
         if (!as) {
-            g_warning("Accelerometer not available: %s", err->message);
+            if (g_error_matches(err, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+                g_warning("Accelerometer timed out after %ds — "
+                          "is hexagonrpcd running?", SSC_OPEN_TIMEOUT);
+            else
+                g_warning("Accelerometer not available: %s", err->message);
             g_clear_error(&err);
         } else {
             parse_mount_matrix(accel.env_matrix, accel.mount);
-            accel.uinput_fd = uinput_create_accel();
-            if (accel.uinput_fd < 0) {
-                /* uinput unavailable — fallback to file output */
+            if (imu_fd < 0) {
                 accel.file_path = "/run/ssc-bridge/accel";
-                g_info("Accelerometer: file fallback → %s", accel.file_path);
+                g_info("Accelerometer: file fallback → %s",
+                       accel.file_path);
             }
             accel.active = TRUE;
-            g_signal_connect(as, "measurement", G_CALLBACK(accel_cb), &accel);
-            if (!ssc_sensor_accelerometer_open_sync(as, NULL, &err)) {
-                g_warning("Failed to open accelerometer: %s", err->message);
+            g_signal_connect(as, "measurement",
+                             G_CALLBACK(accel_cb), &accel);
+
+            if (!ssc_sensor_accelerometer_open_sync(as, so.cancellable, &err)) {
+                if (g_error_matches(err, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+                    g_warning("Accelerometer open timed out");
+                else
+                    g_warning("Failed to open accelerometer: %s",
+                              err->message);
                 g_clear_error(&err);
                 accel.active = FALSE;
             } else {
                 g_info("Accelerometer bridge active (%s mode)",
-                       accel.uinput_fd >= 0 ? "uinput" : "file");
+                       imu_fd >= 0 ? "uinput" : "file");
             }
         }
+        sensor_open_end(&so);
     }
 
-    /* ── Gyroscope ─────────────────────────────────────────────── */
-    Sensor gyro = { .name = "ssc-gyroscope",
-                    .env_matrix = "SSCB_GYROSCOPE_MOUNT_MATRIX",
-                    .uinput_fd = -1, .file_path = NULL, .active = FALSE };
+    /* ── Gyroscope ────────────────────────────────────────────── */
+    Sensor gyro = { .env_matrix = "SSCB_GYROSCOPE_MOUNT_MATRIX",
+                    .uinput_fd = imu_fd,
+                    .file_path = NULL, .active = FALSE };
 
     if (want_gyro) {
+        SensorOpen so = sensor_open_begin(SSC_OPEN_TIMEOUT);
         GError *err = NULL;
-        SSCSensorGyroscope *gs = ssc_sensor_gyroscope_new_sync(NULL, &err);
+        SSCSensorGyroscope *gs =
+            ssc_sensor_gyroscope_new_sync(so.cancellable, &err);
+
         if (!gs) {
-            g_warning("Gyroscope not available: %s", err->message);
+            if (g_error_matches(err, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+                g_warning("Gyroscope timed out after %ds — "
+                          "is hexagonrpcd running?", SSC_OPEN_TIMEOUT);
+            else
+                g_warning("Gyroscope not available: %s", err->message);
             g_clear_error(&err);
         } else {
             parse_mount_matrix(gyro.env_matrix, gyro.mount);
-            gyro.uinput_fd = uinput_create_gyro();
-            if (gyro.uinput_fd < 0) {
-                /* uinput unavailable — fallback to file output */
+            if (imu_fd < 0) {
                 gyro.file_path = "/run/ssc-bridge/gyro";
                 g_info("Gyroscope: file fallback → %s", gyro.file_path);
             }
             gyro.active = TRUE;
-            g_signal_connect(gs, "measurement", G_CALLBACK(gyro_cb), &gyro);
-            if (!ssc_sensor_gyroscope_open_sync(gs, NULL, &err)) {
-                g_warning("Failed to open gyroscope: %s", err->message);
+            g_signal_connect(gs, "measurement",
+                             G_CALLBACK(gyro_cb), &gyro);
+
+            if (!ssc_sensor_gyroscope_open_sync(gs, so.cancellable, &err)) {
+                if (g_error_matches(err, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+                    g_warning("Gyroscope open timed out");
+                else
+                    g_warning("Failed to open gyroscope: %s",
+                              err->message);
                 g_clear_error(&err);
                 gyro.active = FALSE;
             } else {
                 g_info("Gyroscope bridge active (%s mode)",
-                       gyro.uinput_fd >= 0 ? "uinput" : "file");
+                       imu_fd >= 0 ? "uinput" : "file");
             }
         }
+        sensor_open_end(&so);
     }
 
-    /* ── Light sensor ──────────────────────────────────────────── */
+    /* ── Light sensor ─────────────────────────────────────────── */
     if (want_light) {
+        SensorOpen so = sensor_open_begin(SSC_OPEN_TIMEOUT);
         GError *err = NULL;
-        SSCSensorLight *ls = ssc_sensor_light_new_sync(NULL, &err);
+        SSCSensorLight *ls =
+            ssc_sensor_light_new_sync(so.cancellable, &err);
+
         if (!ls) {
-            g_warning("Light sensor not available: %s", err->message);
+            if (g_error_matches(err, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+                g_warning("Light sensor timed out after %ds",
+                          SSC_OPEN_TIMEOUT);
+            else
+                g_warning("Light sensor not available: %s", err->message);
             g_clear_error(&err);
         } else {
             g_signal_connect(ls, "measurement", G_CALLBACK(light_cb),
                              (gpointer)"/run/ssc-bridge/light");
-            if (!ssc_sensor_light_open_sync(ls, NULL, &err)) {
-                g_warning("Failed to open light sensor: %s", err->message);
+
+            if (!ssc_sensor_light_open_sync(ls, so.cancellable, &err)) {
+                if (g_error_matches(err, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+                    g_warning("Light sensor open timed out");
+                else
+                    g_warning("Failed to open light sensor: %s",
+                              err->message);
                 g_clear_error(&err);
             } else {
-                g_info("Light sensor bridge active → /run/ssc-bridge/light");
+                g_info("Light sensor bridge active → "
+                       "/run/ssc-bridge/light");
             }
         }
+        sensor_open_end(&so);
     }
 
-    /* ── Nothing bridged? ──────────────────────────────────────── */
+    /* ── Nothing bridged? ─────────────────────────────────────── */
     if (!accel.active && !gyro.active && !want_light) {
         g_warning("No sensors were successfully bridged");
+        if (imu_fd >= 0) close(imu_fd);
         return 1;
     }
 
@@ -517,13 +600,9 @@ int main(int argc, char **argv)
     g_main_loop_run(main_loop);
 
     /* Cleanup */
-    if (accel.uinput_fd >= 0) {
-        ioctl(accel.uinput_fd, UI_DEV_DESTROY);
-        close(accel.uinput_fd);
-    }
-    if (gyro.uinput_fd >= 0) {
-        ioctl(gyro.uinput_fd, UI_DEV_DESTROY);
-        close(gyro.uinput_fd);
+    if (imu_fd >= 0) {
+        ioctl(imu_fd, UI_DEV_DESTROY);
+        close(imu_fd);
     }
 
     g_main_loop_unref(main_loop);
