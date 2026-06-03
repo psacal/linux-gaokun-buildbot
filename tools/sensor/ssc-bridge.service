@@ -1,0 +1,15 @@
+[Unit]
+Description=SSC Sensor Bridge (Qualcomm SLPI → Linux evdev)
+Documentation=https://github.com/KawaiiHachimi/linux-gaokun-buildbot
+After=hexagonrpcd.service
+Requires=hexagonrpcd.service
+ConditionPathExists=/usr/local/bin/ssc-bridge
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ssc-bridge --all
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
