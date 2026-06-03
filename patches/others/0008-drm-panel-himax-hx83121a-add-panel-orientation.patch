@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: psacal <2658842706@qq.com>
+Date: Thu, 3 Jun 2026 00:00:00 +0800
+Subject: [PATCH] drm/panel: himax-hx83121a: expose panel orientation
+
+Set panel_orientation in display_info so that userspace (e.g. mutter)
+can read the "panel orientation" DRM connector property and enable
+automatic screen rotation via PanelOrientationManaged.
+
+Signed-off-by: psacal <2658842706@qq.com>
+---
+ drivers/gpu/drm/panel/panel-himax-hx83121a.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/gpu/drm/panel/panel-himax-hx83121a.c b/drivers/gpu/drm/panel/panel-himax-hx83121a.c
+index 028b615c6..0000000000 100644
+--- a/drivers/gpu/drm/panel/panel-himax-hx83121a.c
++++ b/drivers/gpu/drm/panel/panel-himax-hx83121a.c
+@@ -184,6 +184,8 @@ static int himax_get_modes(struct drm_panel *panel,
+ 	connector->display_info.bpc = desc->bpc;
+
++	connector->display_info.panel_orientation =
++		DRM_MODE_PANEL_ORIENTATION_NORMAL;
++
+ 	return num_modes;
+ }
+--
+2.43.0

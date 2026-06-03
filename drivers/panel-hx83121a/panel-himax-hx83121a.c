@@ -182,6 +182,8 @@ static int himax_get_modes(struct drm_panel *panel,
 	connector->display_info.width_mm = desc->width_mm;
 	connector->display_info.height_mm = desc->height_mm;
 	connector->display_info.bpc = desc->bpc;
+	connector->display_info.panel_orientation =
+		DRM_MODE_PANEL_ORIENTATION_NORMAL;
 
 	return num_modes;
 }
