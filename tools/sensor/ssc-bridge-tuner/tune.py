@@ -64,7 +64,7 @@ _TR = {
     "app_title":            "ssc-bridge 传感器桥接",
     "tab_status":           "运行状态",
     "tab_imu":              "IMU 参数",
-    "tab_monitor":          "实时姿态",
+    "tab_monitor":          "传感器数据",
     "tab_about":            "关于",
     "status_running":       "运行中",
     "status_stopped":       "已停止",
@@ -101,10 +101,10 @@ _TR = {
     "err_service":          "systemd 操作失败：{err}",
     "err_open_link":        "打开链接失败：{err}",
     "err_helper_missing":   "未找到提权写入 helper：{path}",
-    "orientation_normal":   "正常 (屏幕朝上)",
-    "orientation_left":     "左侧朝下",
-    "orientation_right":    "右侧朝下",
-    "orientation_bottom":   "屏幕朝下",
+    "orientation_normal":   "纵向",
+    "orientation_left":     "横向",
+    "orientation_right":    "横向翻转",
+    "orientation_bottom":   "纵向翻转",
     "orientation_tilted":   "倾斜",
 }
 
@@ -380,6 +380,10 @@ class BridgeTunerWindow(Gtk.Window):
         title1 = Gtk.Label(label=t("tab_status"), xalign=0)
         title1.add_css_class("heading")
         cb1.append(title1)
+
+        svc_label = Gtk.Label(label="systemd: ssc-bridge.service", xalign=0)
+        svc_label.add_css_class("caption")
+        cb1.append(svc_label)
 
         self._status_running_label = Gtk.Label(label=t("status_unknown"), xalign=0)
         self._status_running_label.add_css_class("title-1")
