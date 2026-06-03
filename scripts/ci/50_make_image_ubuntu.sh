@@ -65,7 +65,17 @@ sudo mount -t proc proc "$MNT/proc"
 sudo mount -t sysfs sys "$MNT/sys"
 sudo mount -t tmpfs tmpfs "$MNT/run"
 
+# Bind-mount gaokun source dir for chroot builds
+sudo mkdir -p "$MNT/tmp/gaokun"
+sudo mount --bind "$GAOKUN_DIR" "$MNT/tmp/gaokun"
+
 sudo chroot "$MNT" /usr/bin/env KREL="$KREL" KREL_EL2="$KREL_EL2" BUILD_EL2="$BUILD_EL2" ROOT_UUID="$ROOT_UUID" /bin/bash -euxo pipefail <<'CHROOT_EOF'
+# Build patched hexagonrpcd (CR-strip for SLPI sensor support)
+/tmp/gaokun/scripts/ci/lib/install-hexagonrpcd.sh || echo "WARNING: hexagonrpcd build failed, using stock binary"
+
+# Build ssc-bridge (experimental, disabled by default)
+apt-get install -y libssc-dev libglib2.0-dev libqmi-glib-dev libqrtr-glib-dev make gcc pkg-config || true
+make -C /tmp/gaokun/tools/sensor && make -C /tmp/gaokun/tools/sensor install || echo "WARNING: ssc-bridge build failed"
 echo "ubuntu" > /etc/hostname
 id -u user >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo user
 echo "user:user" | chpasswd

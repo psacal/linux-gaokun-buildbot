@@ -16,6 +16,7 @@ install_common_image_assets() {
     "tools/wifi/gaokun-wifi-mac@.service:/etc/systemd/system/gaokun-wifi-mac@.service"
     "tools/monitors/gdm-monitor-sync.service:/etc/systemd/system/gdm-monitor-sync.service"
     "tools/touchpad/huawei-touchpad.service:/etc/systemd/system/huawei-touchpad.service"
+    "tools/sensor/ssc-bridge.service:/etc/systemd/system/ssc-bridge.service"
   )
   local data_assets=(
     "tools/audio/sc8280xp.conf:/usr/share/alsa/ucm2/Qualcomm/sc8280xp/sc8280xp.conf"
@@ -24,6 +25,7 @@ install_common_image_assets() {
     "tools/touchscreen-tuner/tune-icon.svg:/usr/local/lib/gaokun-touchscreen-tuner/tune-icon.svg"
     "tools/touchscreen-tuner/touchscreen-tune.desktop:/usr/share/applications/touchscreen-tune.desktop"
     "tools/image-assets/usr/local/share/gaokun/monitors.xml:/usr/local/share/gaokun/monitors.xml"
+    "tools/hexagonrpcd/override.conf:/etc/systemd/system/hexagonrpcd.service.d/override.conf"
   )
   local asset src dest
 
