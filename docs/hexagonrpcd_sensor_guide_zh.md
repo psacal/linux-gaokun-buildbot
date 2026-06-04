@@ -74,8 +74,7 @@ Environment=HEXAGON_SENSOR_REGISTRY=/usr/lib/hexagonrpcd/sensors/registry
 
 ## 下一步
 
-- 安装 [libssc](https://codeberg.org/dylanvanassche/libssc) 和 ssc-bridge 进行 evdev 桥接
-- 参见 `EXPERIMENTAL.md`（后续 PR 提供）
+- 安装 [libssc](https://codeberg.org/dylanvanassche/libssc) 用于从用户态验证传感器数据
 
 ## 参考
 
