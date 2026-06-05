@@ -92,30 +92,6 @@ def run(*args):
     subprocess.check_call(list(args))
 
 
-def have_command(name):
-    return any(
-        os.access(os.path.join(path, name), os.X_OK)
-        for path in os.environ.get("PATH", "").split(os.pathsep)
-        if path
-    )
-
-
-def nmcli_state(iface):
-    if not have_command("nmcli"):
-        return "", ""
-    try:
-        out = subprocess.check_output(
-            ["nmcli", "-g", "GENERAL.STATE,GENERAL.CONNECTION", "device", "show", iface],
-            text=True,
-        )
-    except subprocess.CalledProcessError:
-        return "", ""
-    lines = out.strip().splitlines()
-    state = lines[0] if len(lines) > 0 else ""
-    connection = lines[1] if len(lines) > 1 else ""
-    return state, connection
-
-
 def main():
     if os.geteuid() != 0:
         print("Error: must run as root", file=sys.stderr)
@@ -136,19 +112,11 @@ def main():
         print("MAC already stable, nothing to do.")
         return 0
 
-    state, connection = nmcli_state(iface)
-    reconnect = state.startswith("100") or state.startswith("30")
-    if reconnect:
-        run("nmcli", "device", "disconnect", iface)
-
     was_up = is_up(iface)
     run("ip", "link", "set", "dev", iface, "down")
     run("ip", "link", "set", "dev", iface, "address", wanted)
     if was_up:
         run("ip", "link", "set", "dev", iface, "up")
-
-    if reconnect:
-        run("nmcli", "device", "connect", iface)
 
     print(f"Stable Wi-Fi MAC applied: {wanted}")
     return 0
