@@ -17,6 +17,7 @@
 
 #include <drm/display/drm_dsc.h>
 #include <drm/display/drm_dsc_helper.h>
+#include <drm/drm_connector.h>
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_modes.h>
 #include <drm/drm_panel.h>
@@ -182,6 +183,9 @@ static int himax_get_modes(struct drm_panel *panel,
 	connector->display_info.width_mm = desc->width_mm;
 	connector->display_info.height_mm = desc->height_mm;
 	connector->display_info.bpc = desc->bpc;
+
+	drm_connector_set_panel_orientation(connector,
+					    DRM_MODE_PANEL_ORIENTATION_NORMAL);
 
 	return num_modes;
 }
