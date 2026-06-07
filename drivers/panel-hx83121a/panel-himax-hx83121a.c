@@ -186,10 +186,16 @@ static int himax_get_modes(struct drm_panel *panel,
 	return num_modes;
 }
 
+static enum drm_panel_orientation himax_get_orientation(struct drm_panel *panel)
+{
+	return DRM_MODE_PANEL_ORIENTATION_NORMAL;
+}
+
 static const struct drm_panel_funcs himax_panel_funcs = {
 	.prepare = himax_prepare,
 	.unprepare = himax_unprepare,
 	.get_modes = himax_get_modes,
+	.get_orientation = himax_get_orientation,
 };
 
 static int himax_bl_update_status(struct backlight_device *bl)
@@ -597,8 +603,8 @@ static int himax_probe(struct mipi_dsi_device *dsi)
 
 	ctx = devm_drm_panel_alloc(dev, struct himax, panel, &himax_panel_funcs,
 				   DRM_MODE_CONNECTOR_DSI);
-	if (!ctx)
-		return -ENOMEM;
+	if (IS_ERR(ctx))
+		return PTR_ERR(ctx);
 
 	ret = devm_regulator_bulk_get_const(&dsi->dev,
 					    ARRAY_SIZE(himax_supplies),
