@@ -1,4 +1,4 @@
-From 840abb47b88fbe42d0a459d73867834a259b0584 Mon Sep 17 00:00:00 2001
+From da00629596d89f0394387448927ab55a2f8cbd3e Mon Sep 17 00:00:00 2001
 From: KawaiiHachimi <bilibili@att.net>
 Date: Mon, 11 May 2026 03:22:53 +0000
 Subject: [PATCH] arm64: gaokun3: import local dts and defconfig
@@ -687,14 +687,14 @@ index 9819454ab..e67a7ce74 100644
  
 @@ -734,10 +789,92 @@ &mdss0_dp1 {
  };
-
+ 
  &mdss0_dp1_out {
 -	data-lanes = <0 1>;
 +	data-lanes = <0 1 2 3>;
 +	link-frequencies = /bits/ 64 <1620000000 2700000000 5400000000 8100000000>;
  	remote-endpoint = <&usb_1_qmpphy_dp_in>;
  };
-
+ 
 +&mdss0_dsi0 {
 +	vdda-supply = <&vreg_l3b>;
 +
@@ -1059,7 +1059,7 @@ index 9819454ab..e67a7ce74 100644
  
 diff --git a/arch/arm64/configs/gaokun3_defconfig b/arch/arm64/configs/gaokun3_defconfig
 new file mode 100644
-index 000000000..0108b380b
+index 000000000..257df2d1c
 --- /dev/null
 +++ b/arch/arm64/configs/gaokun3_defconfig
 @@ -0,0 +1,513 @@
@@ -1306,7 +1306,6 @@ index 000000000..0108b380b
 +CONFIG_MHI_WWAN_CTRL=m
 +CONFIG_MHI_WWAN_MBIM=m
 +CONFIG_INPUT_EVDEV=y
-+CONFIG_INPUT_UINPUT=m
 +# CONFIG_KEYBOARD_ATKBD is not set
 +CONFIG_KEYBOARD_GPIO=y
 +# CONFIG_INPUT_MOUSE is not set
@@ -1576,6 +1575,7 @@ index 000000000..0108b380b
 +CONFIG_DEBUG_FS=y
 +# CONFIG_FTRACE is not set
 +# CONFIG_RUNTIME_TESTING_MENU is not set
++CONFIG_INPUT_UINPUT=m
 -- 
-2.52.0
+2.53.0
 
