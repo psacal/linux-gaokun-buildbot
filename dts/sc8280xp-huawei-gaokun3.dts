@@ -89,7 +89,7 @@
 			linux,can-disable;
 			wakeup-source;
 		};
-/*
+
 		// FIXME: touchpad won't work after detaching
 		switch-mode {
 			label = "Tablet Mode Switch";
@@ -99,7 +99,7 @@
 			debounce-interval = <10>;
 			wakeup-source;
 		};
-*/	};
+	};
 
 	vreg_avdd_5p5: regulator-avdd-5p5 {
 		compatible = "regulator-fixed";
