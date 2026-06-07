@@ -27,7 +27,7 @@ index 1d47ce580..63513bfd1 100644
  	connector->display_info.bpc = desc->bpc;
  
 +	drm_connector_set_panel_orientation(connector,
-+					    DRM_MODE_PANEL_ORIENTATION_RIGHT_UP);
++					    DRM_MODE_PANEL_ORIENTATION_NORMAL);
 +
  	return num_modes;
  }
