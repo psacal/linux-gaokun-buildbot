@@ -101,10 +101,10 @@ _TR = {
     "err_service":          "systemd 操作失败：{err}",
     "err_open_link":        "打开链接失败：{err}",
     "err_helper_missing":   "未找到提权写入 helper：{path}",
-    "orientation_normal":   "横向",
+    "orientation_normal":   "横向翻转",
     "orientation_left":     "纵向",
     "orientation_right":    "纵向翻转",
-    "orientation_bottom":   "横向翻转",
+    "orientation_bottom":   "横向",
     "orientation_flat_up":  "屏幕朝上",
     "orientation_flat_down":"屏幕朝下",
     "orientation_tilted":   "倾斜",
@@ -289,16 +289,16 @@ def compute_orientation(x, y, z):
     ax, ay, az = abs(x), abs(y), abs(z)
     threshold = 4.0  # m/s² — gravity is ~9.81
 
-    # Laptop mode: keyboard at bottom → gravity on -Y → 横向
+    # Laptop mode: gravity on +Y → 横向翻转 (matrix -1,-1,-1 inverts)
     if ay > ax and ay > az and y < -threshold:
         return ("normal", pitch, roll)
-    # Laptop upside down: keyboard at top → gravity on +Y → 横向翻转
+    # Laptop upside down: gravity on -Y → 横向
     elif ay > ax and ay > az and y > threshold:
         return ("bottom-up", pitch, roll)
-    # Rotated 90° clockwise: right edge down → gravity on +X → 纵向
+    # Rotated: gravity on -X → 纵向翻转
     elif ax > ay and ax > az and x > threshold:
         return ("left-up", pitch, roll)
-    # Rotated 90° counter-clockwise: left edge down → gravity on -X → 纵向翻转
+    # Rotated: gravity on +X → 纵向
     elif ax > ay and ax > az and x < -threshold:
         return ("right-up", pitch, roll)
     # Flat on desk: screen facing up → gravity on -Z
