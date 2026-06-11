@@ -1,23 +1,45 @@
-From 434a43cb9838b27db404c5a32796124080a1b025 Mon Sep 17 00:00:00 2001
+From 54f36b197a24687f95293620ada7e8c888913211 Mon Sep 17 00:00:00 2001
 From: psacal <2658842706@qq.com>
-Date: Thu, 11 Jun 2026 17:18:23 +0800
-Subject: [PATCH] drm/panel: himax-hx83121a: use RIGHT_UP for portrait panel in
- landscape chassis
+Date: Thu, 11 Jun 2026 17:29:04 +0800
+Subject: [PATCH] drm/panel: himax-hx83121a: add panel orientation RIGHT_UP
 
 ---
- drivers/gpu/drm/panel/panel-himax-hx83121a.c | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
+ drivers/gpu/drm/panel/panel-himax-hx83121a.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
 
 diff --git a/drivers/gpu/drm/panel/panel-himax-hx83121a.c b/drivers/gpu/drm/panel/panel-himax-hx83121a.c
-index 1d47ce580..1a2391caf 100644
+index 028b615c6..0653939e9 100644
 --- a/drivers/gpu/drm/panel/panel-himax-hx83121a.c
 +++ b/drivers/gpu/drm/panel/panel-himax-hx83121a.c
-@@ -188,7 +188,7 @@ static int himax_get_modes(struct drm_panel *panel,
+@@ -18,6 +18,7 @@
+ #include <drm/display/drm_dsc.h>
+ #include <drm/display/drm_dsc_helper.h>
+ #include <drm/drm_mipi_dsi.h>
++#include <drm/drm_connector.h>
+ #include <drm/drm_modes.h>
+ #include <drm/drm_panel.h>
  
- static enum drm_panel_orientation himax_get_orientation(struct drm_panel *panel)
- {
--	return DRM_MODE_PANEL_ORIENTATION_NORMAL;
-+	return DRM_MODE_PANEL_ORIENTATION_RIGHT_UP;
+@@ -183,13 +184,23 @@ static int himax_get_modes(struct drm_panel *panel,
+ 	connector->display_info.height_mm = desc->height_mm;
+ 	connector->display_info.bpc = desc->bpc;
+ 
++
++	drm_connector_set_panel_orientation(connector,
++					    DRM_MODE_PANEL_ORIENTATION_RIGHT_UP);
+ 	return num_modes;
  }
  
++
++static enum drm_panel_orientation himax_get_orientation(struct drm_panel *panel)
++{
++	return DRM_MODE_PANEL_ORIENTATION_RIGHT_UP;
++}
++
  static const struct drm_panel_funcs himax_panel_funcs = {
+ 	.prepare = himax_prepare,
+ 	.unprepare = himax_unprepare,
+ 	.get_modes = himax_get_modes,
++	.get_orientation = himax_get_orientation,
+ };
+ 
+ static int himax_bl_update_status(struct backlight_device *bl)
