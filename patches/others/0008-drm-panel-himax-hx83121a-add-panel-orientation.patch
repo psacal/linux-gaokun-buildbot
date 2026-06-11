@@ -1,37 +1,23 @@
-From 7a35b25f68bd5e819364c2d1d60de6b76a248d95 Mon Sep 17 00:00:00 2001
+From 434a43cb9838b27db404c5a32796124080a1b025 Mon Sep 17 00:00:00 2001
 From: psacal <2658842706@qq.com>
-Date: Wed, 3 Jun 2026 16:21:28 +0000
-Subject: [PATCH] drm/panel: himax-hx83121a: set panel_orientation in get_modes
+Date: Thu, 11 Jun 2026 17:18:23 +0800
+Subject: [PATCH] drm/panel: himax-hx83121a: use RIGHT_UP for portrait panel in
+ landscape chassis
 
-  MSM DSI doesn't use drm_panel_bridge, so the .get_orientation callback
-  is never invoked through the bridge chain. Set the orientation directly
-  in get_modes() as a safety net, following panel-sitronix-st7701.
 ---
- drivers/gpu/drm/panel/panel-himax-hx83121a.c | 4 ++++
- 1 file changed, 4 insertions(+)
+ drivers/gpu/drm/panel/panel-himax-hx83121a.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/drivers/gpu/drm/panel/panel-himax-hx83121a.c b/drivers/gpu/drm/panel/panel-himax-hx83121a.c
-index 1d47ce580..63513bfd1 100644
+index 1d47ce580..1a2391caf 100644
 --- a/drivers/gpu/drm/panel/panel-himax-hx83121a.c
 +++ b/drivers/gpu/drm/panel/panel-himax-hx83121a.c
-@@ -17,6 +17,7 @@
+@@ -188,7 +188,7 @@ static int himax_get_modes(struct drm_panel *panel,
  
- #include <drm/display/drm_dsc.h>
- #include <drm/display/drm_dsc_helper.h>
-+#include <drm/drm_connector.h>
- #include <drm/drm_mipi_dsi.h>
- #include <drm/drm_modes.h>
- #include <drm/drm_panel.h>
-@@ -183,6 +184,9 @@ static int himax_get_modes(struct drm_panel *panel,
- 	connector->display_info.height_mm = desc->height_mm;
- 	connector->display_info.bpc = desc->bpc;
- 
-+	drm_connector_set_panel_orientation(connector,
-+					    DRM_MODE_PANEL_ORIENTATION_NORMAL);
-+
- 	return num_modes;
+ static enum drm_panel_orientation himax_get_orientation(struct drm_panel *panel)
+ {
+-	return DRM_MODE_PANEL_ORIENTATION_NORMAL;
++	return DRM_MODE_PANEL_ORIENTATION_RIGHT_UP;
  }
  
--- 
-2.53.0
-
+ static const struct drm_panel_funcs himax_panel_funcs = {
