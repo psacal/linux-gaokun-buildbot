@@ -1726,4 +1726,18 @@
 		drive-strength = <8>;
 		bias-pull-down;
 	};
+
+	fte7001_default: fte7001-default-state {
+		data-pins {
+			pins = "gpio35", "gpio36", "gpio41", "gpio42";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-disable;
+		};
+		irq-pin {
+			pins = "gpio185";
+			function = "gpio";
+			bias-pull-down;
+		};
+	};
 };
